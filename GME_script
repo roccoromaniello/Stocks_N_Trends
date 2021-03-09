@@ -1,0 +1,126 @@
+import pandas as pd
+import yfinance as yf
+from pytrends.request import TrendReq
+import matplotlib.pyplot as plt
+import numpy as np
+pytrend = TrendReq(hl='en-US', tz=360)
+
+# Selecting GAMESTOP ticker for the Google trends
+kw_list = ['GME']
+
+try:
+    data = pytrends.get_historical_interest(kw_list,
+                                 year_start=2020,
+                                 month_start=10,
+                                 day_start=1,
+                                 hour_start=0,
+                                 year_end=2021, 
+                                 month_end=2,
+                                 day_end=26,
+                                 hour_end=0,
+                                 cat=0, geo='', gprop='', sleep=6)
+except requests.exceptions.Timeout:
+    print("Timeout has occured")
+
+
+# Eliminate column isPartial
+data = data.drop(labels=['isPartial'],axis='columns')
+data.info()
+
+# Data visualization
+data.plot(figsize=(20,20))
+
+df = data.copy()
+# Resampling to merge with stock price
+df_daily = df.resample('D').sum()
+df_daily.info()
+
+
+GME = yf.download('GME')['Adj Close']
+
+GME.head()
+
+# Merging by index (Timestamp)
+merged_df = pd.merge(df_daily,GME,how="outer",left_index=True, right_index=True).dropna()
+merged_df.info()
+
+# Plotting the results
+merged_df.plot(figsize=(20,20),sharey = True)
+
+
+# PLOT Google trend vs Price
+# create figure and axis objects with subplots()
+fig,ax = plt.subplots(figsize=(15,12))
+
+# make a plot
+ax.plot(merged_df.index, merged_df['Adj Close'], color="red", marker ='o')
+# set x-axis label
+ax.set_xlabel("Date",fontsize=12)
+# set y-axis label
+ax.set_ylabel("PRICE",color="red",fontsize=12)
+ax2=ax.twinx()
+# make a plot with different y-axis using second axis object
+ax2.plot(merged_df.index, merged_df['GME'],color="blue",marker='o',alpha=0.5)
+ax2.set_ylabel("Google trend",color="blue",fontsize=12)
+plt.show()
+
+# Downloading the volume for GME 
+volume = yf.download('GME')['Volume']
+df_vf = pd.merge(merged_df,volume,how="outer",left_index=True, right_index=True).dropna()
+
+# Computing Correlation
+df_corr = df_vf.corr().where(np.tril(np.ones(df_vf.corr().shape)).astype(np.bool))
+
+# PLOT Google trend vs Volume 
+
+fig,ax = plt.subplots(figsize=(20,20))
+ax.bar(df_vf.index, df_vf['Volume'], color="red",alpha= 0.1,width=0.5)
+# set x-axis label
+ax.set_xlabel("date",fontsize=12)
+# set y-axis label
+ax.set_ylabel("Volume",color="red",fontsize=12)
+ax2=ax.twinx()
+# make a plot with different y-axis using second axis object
+ax2.plot(df_vf.index, df_vf['GME'],color="blue",alpha=0.9,marker='o')
+ax2.set_ylabel("Google trend",color="blue",fontsize=12)
+plt.show()
+
+#########################
+###  Rolling analysis ###
+#########################
+
+roll_gme_price = df_vf.GME.rolling(25).corr(df_vf['Adj Close'])
+roll_gme_volume = df_vf.GME.rolling(25).corr(df_vf['Volume'])
+
+plt.figure(figsize=(12,10))
+plt.title('Google trends vs Price')
+plt.plot(roll_gme_price)
+plt.show()
+
+plt.figure(figsize=(12,10))
+plt.title('Rolling correlation (25d): Google trends vs Volume')
+plt.plot(roll_gme_volume)
+plt.show()
+
+# Lagged GME Trends
+df_shifted = df_vf['GME'].copy()
+df_shifted = df_shifted.shift(-1).dropna()
+df_shifted.head()
+
+df_rolling_lag_vol = df_shifted.rolling(25).corr(df_vf['Volume'])
+plt.figure(figsize=(12,8))
+plt.title('Rolling correlation (25d): Lag Trends vs Volume')
+plt.plot(df_rolling_lag_vol)
+plt.show()
+
+df_rol_lag_mean_vol = df_shifted.rolling(25).corr((df_vf['Volume']).rolling(5).mean())
+plt.figure(figsize=(12,8))
+plt.title('Rolling correlation (25d): Lag Trends vs MA(5) Volume')
+plt.plot(df_rol_lag_mean_vol)
+plt.show()
+
+plt.figure(figsize=(15,10))
+df_shifted.rolling(25).corr((df_vf['Volume']).rolling(5).mean()).plot()
+df_shifted.rolling(25).corr(df_vf['Volume']).plot()
+plt.legend(['Rolling correlation (25d): Lag Trends vs MA(5) Volume','Rolling correlation (25d): Lag Trends vs Volume'])
+plt.show()
